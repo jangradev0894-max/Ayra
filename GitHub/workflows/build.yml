@@ -1,0 +1,679 @@
+name: Build Ayra APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Generate Ayra project
+        run: |
+          cat > settings.gradle.kts <<'AYRA_EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "Ayra"
+          include(":app")
+          AYRA_EOF
+          cat > build.gradle.kts <<'AYRA_EOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          AYRA_EOF
+          cat > gradle.properties <<'AYRA_EOF'
+          org.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          AYRA_EOF
+          mkdir -p app
+          cat > app/build.gradle.kts <<'AYRA_EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.ayra.assistant"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.ayra.assistant"
+                  minSdk = 24
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              signingConfigs {
+                  getByName("debug") {
+                      storeFile = file("ayra.keystore")
+                      storePassword = "ayra123"
+                      keyAlias = "ayra"
+                      keyPassword = "ayra123"
+                  }
+              }
+
+              buildTypes {
+                  getByName("debug") {
+                      signingConfig = signingConfigs.getByName("debug")
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+
+          dependencies {
+              implementation("androidx.appcompat:appcompat:1.7.0")
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("com.squareup.okhttp3:okhttp:4.12.0")
+          }
+          AYRA_EOF
+          mkdir -p app/src/main
+          cat > app/src/main/AndroidManifest.xml <<'AYRA_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+              <queries>
+                  <intent>
+                      <action android:name="android.intent.action.TTS_SERVICE" />
+                  </intent>
+              </queries>
+
+              <application
+                  android:allowBackup="false"
+                  android:label="Ayra"
+                  android:theme="@style/Theme.Ayra">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          AYRA_EOF
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/themes.xml <<'AYRA_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.Ayra" parent="Theme.AppCompat.DayNight.NoActionBar" />
+          </resources>
+          AYRA_EOF
+          mkdir -p app/src/main/res/layout
+          cat > app/src/main/res/layout/activity_main.xml <<'AYRA_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:orientation="vertical"
+              android:padding="16dp">
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:gravity="center_vertical"
+                  android:orientation="horizontal">
+
+                  <TextView
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:text="Ayra"
+                      android:textSize="26sp"
+                      android:textStyle="bold" />
+
+                  <Button
+                      android:id="@+id/settingsButton"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="Settings" />
+              </LinearLayout>
+
+              <LinearLayout
+                  android:id="@+id/settingsPanel"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="vertical"
+                  android:visibility="gone">
+
+                  <EditText
+                      android:id="@+id/apiKeyInput"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:hint="Groq API key (gsk_...)"
+                      android:inputType="textPassword"
+                      android:singleLine="true" />
+
+                  <EditText
+                      android:id="@+id/modelInput"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:hint="Chat model"
+                      android:inputType="text"
+                      android:singleLine="true" />
+
+                  <Button
+                      android:id="@+id/saveButton"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:text="Save" />
+              </LinearLayout>
+
+              <TextView
+                  android:id="@+id/statusText"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:paddingTop="8dp"
+                  android:paddingBottom="8dp"
+                  android:text="Ready"
+                  android:textSize="14sp" />
+
+              <ScrollView
+                  android:id="@+id/chatScroll"
+                  android:layout_width="match_parent"
+                  android:layout_height="0dp"
+                  android:layout_weight="1">
+
+                  <TextView
+                      android:id="@+id/chatText"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:lineSpacingExtra="4dp"
+                      android:textIsSelectable="true"
+                      android:textSize="16sp" />
+              </ScrollView>
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:gravity="center_vertical"
+                  android:orientation="horizontal">
+
+                  <EditText
+                      android:id="@+id/textInput"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:hint="Ya yahan type karo"
+                      android:inputType="textCapSentences|textMultiLine"
+                      android:maxLines="3" />
+
+                  <Button
+                      android:id="@+id/sendButton"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="Send" />
+              </LinearLayout>
+
+              <Button
+                  android:id="@+id/micButton"
+                  android:layout_width="match_parent"
+                  android:layout_height="72dp"
+                  android:text="Bolne ke liye dabao"
+                  android:textSize="18sp" />
+          </LinearLayout>
+          AYRA_EOF
+          mkdir -p app/src/main/java/com/ayra/assistant
+          cat > app/src/main/java/com/ayra/assistant/MainActivity.kt <<'AYRA_EOF'
+          package com.ayra.assistant
+
+          import android.Manifest
+          import android.content.pm.PackageManager
+          import android.media.MediaRecorder
+          import android.os.Build
+          import android.os.Bundle
+          import android.speech.tts.TextToSpeech
+          import android.view.View
+          import android.widget.Button
+          import android.widget.EditText
+          import android.widget.LinearLayout
+          import android.widget.ScrollView
+          import android.widget.TextView
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.core.content.ContextCompat
+          import okhttp3.Call
+          import okhttp3.Callback
+          import okhttp3.MediaType.Companion.toMediaType
+          import okhttp3.MultipartBody
+          import okhttp3.OkHttpClient
+          import okhttp3.Request
+          import okhttp3.RequestBody.Companion.asRequestBody
+          import okhttp3.RequestBody.Companion.toRequestBody
+          import okhttp3.Response
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.io.File
+          import java.io.IOException
+          import java.util.Locale
+          import java.util.concurrent.TimeUnit
+
+          class MainActivity : AppCompatActivity() {
+
+              private val groqBase = "https://api.groq.com/openai/v1"
+              private val defaultModel = "llama-3.3-70b-versatile"
+              private val sttModel = "whisper-large-v3-turbo"
+
+              private val systemPrompt =
+                  "Tum Ayra ho, ek friendly voice assistant. User se Hinglish (Roman script) me baat karo, " +
+                      "jab tak user koi aur language na bole. Tumhare jawab bole jaayenge, isliye chhote rakho " +
+                      "(1 se 3 vaakya), aur markdown, emoji ya lists mat use karo."
+
+              private val client = OkHttpClient.Builder()
+                  .connectTimeout(30, TimeUnit.SECONDS)
+                  .readTimeout(60, TimeUnit.SECONDS)
+                  .writeTimeout(60, TimeUnit.SECONDS)
+                  .build()
+
+              private val history = JSONArray()
+
+              private lateinit var statusText: TextView
+              private lateinit var chatText: TextView
+              private lateinit var chatScroll: ScrollView
+              private lateinit var micButton: Button
+              private lateinit var sendButton: Button
+              private lateinit var textInput: EditText
+              private lateinit var apiKeyInput: EditText
+              private lateinit var modelInput: EditText
+              private lateinit var settingsPanel: LinearLayout
+
+              private var tts: TextToSpeech? = null
+              private var ttsReady = false
+
+              private var recorder: MediaRecorder? = null
+              private var recording = false
+              private var audioFile: File? = null
+
+              private val micPermission =
+                  registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                      if (granted) {
+                          startRecording()
+                      } else {
+                          setStatus("Mic permission chahiye. Settings me Ayra ko mic allow karo.")
+                      }
+                  }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContentView(R.layout.activity_main)
+
+                  statusText = findViewById(R.id.statusText)
+                  chatText = findViewById(R.id.chatText)
+                  chatScroll = findViewById(R.id.chatScroll)
+                  micButton = findViewById(R.id.micButton)
+                  sendButton = findViewById(R.id.sendButton)
+                  textInput = findViewById(R.id.textInput)
+                  apiKeyInput = findViewById(R.id.apiKeyInput)
+                  modelInput = findViewById(R.id.modelInput)
+                  settingsPanel = findViewById(R.id.settingsPanel)
+
+                  val prefs = getSharedPreferences("ayra", MODE_PRIVATE)
+                  apiKeyInput.setText(prefs.getString("key", ""))
+                  modelInput.setText(prefs.getString("model", defaultModel))
+
+                  if (apiKeyInput.text.isNullOrBlank()) {
+                      settingsPanel.visibility = View.VISIBLE
+                      setStatus("Pehle Groq API key paste karke Save dabao.")
+                  }
+
+                  findViewById<Button>(R.id.settingsButton).setOnClickListener {
+                      settingsPanel.visibility =
+                          if (settingsPanel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                  }
+
+                  findViewById<Button>(R.id.saveButton).setOnClickListener {
+                      val model = modelInput.text.toString().trim().ifEmpty { defaultModel }
+                      prefs.edit()
+                          .putString("key", apiKeyInput.text.toString().trim())
+                          .putString("model", model)
+                          .apply()
+                      modelInput.setText(model)
+                      settingsPanel.visibility = View.GONE
+                      setStatus("Saved.")
+                  }
+
+                  sendButton.setOnClickListener {
+                      val text = textInput.text.toString().trim()
+                      if (text.isNotEmpty()) {
+                          textInput.setText("")
+                          handleUserText(text)
+                      }
+                  }
+
+                  micButton.setOnClickListener {
+                      if (recording) {
+                          stopRecordingAndTranscribe()
+                      } else {
+                          tts?.stop()
+                          if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                              == PackageManager.PERMISSION_GRANTED
+                          ) {
+                              startRecording()
+                          } else {
+                              micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                          }
+                      }
+                  }
+
+                  history.put(JSONObject().put("role", "system").put("content", systemPrompt))
+
+                  tts = TextToSpeech(this) { status ->
+                      if (status == TextToSpeech.SUCCESS) {
+                          val engine = tts
+                          if (engine != null) {
+                              val r = engine.setLanguage(Locale("hi", "IN"))
+                              if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
+                                  engine.setLanguage(Locale.getDefault())
+                              }
+                              ttsReady = true
+                          }
+                      }
+                  }
+              }
+
+              override fun onDestroy() {
+                  super.onDestroy()
+                  tts?.stop()
+                  tts?.shutdown()
+                  try {
+                      recorder?.release()
+                  } catch (_: Exception) {
+                  }
+              }
+
+              // ---------- Recording ----------
+
+              private fun startRecording() {
+                  try {
+                      val file = File(cacheDir, "rec.m4a")
+                      if (file.exists()) file.delete()
+                      audioFile = file
+
+                      @Suppress("DEPRECATION")
+                      val r = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else MediaRecorder()
+                      r.setAudioSource(MediaRecorder.AudioSource.MIC)
+                      r.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                      r.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                      r.setAudioSamplingRate(16000)
+                      r.setAudioEncodingBitRate(64000)
+                      r.setOutputFile(file.absolutePath)
+                      r.prepare()
+                      r.start()
+
+                      recorder = r
+                      recording = true
+                      micButton.text = "Sun raha hu... bolke dobara dabao"
+                      setStatus("Sun raha hu...")
+                  } catch (e: Exception) {
+                      recording = false
+                      setStatus("Recording start nahi hui: ${e.message}")
+                  }
+              }
+
+              private fun stopRecordingAndTranscribe() {
+                  val r = recorder
+                  recording = false
+                  micButton.text = "Bolne ke liye dabao"
+                  var ok = true
+                  try {
+                      r?.stop()
+                  } catch (e: RuntimeException) {
+                      ok = false
+                  }
+                  try {
+                      r?.release()
+                  } catch (_: Exception) {
+                  }
+                  recorder = null
+
+                  val file = audioFile
+                  if (!ok || file == null || !file.exists() || file.length() < 1000) {
+                      setStatus("Awaaz bahut chhoti thi, dobara bolo.")
+                      return
+                  }
+                  transcribe(file)
+              }
+
+              // ---------- Groq calls ----------
+
+              private fun apiKey(): String =
+                  getSharedPreferences("ayra", MODE_PRIVATE).getString("key", "")?.trim() ?: ""
+
+              private fun model(): String =
+                  getSharedPreferences("ayra", MODE_PRIVATE).getString("model", defaultModel)
+                      ?.trim()?.ifEmpty { defaultModel } ?: defaultModel
+
+              private fun transcribe(file: File) {
+                  val key = apiKey()
+                  if (key.isEmpty()) {
+                      setStatus("Settings me Groq API key daalo.")
+                      return
+                  }
+                  setStatus("Samajh raha hu...")
+
+                  val body = MultipartBody.Builder()
+                      .setType(MultipartBody.FORM)
+                      .addFormDataPart("model", sttModel)
+                      .addFormDataPart("response_format", "json")
+                      .addFormDataPart("file", "rec.m4a", file.asRequestBody("audio/mp4".toMediaType()))
+                      .build()
+
+                  val request = Request.Builder()
+                      .url("$groqBase/audio/transcriptions")
+                      .header("Authorization", "Bearer $key")
+                      .post(body)
+                      .build()
+
+                  client.newCall(request).enqueue(object : Callback {
+                      override fun onFailure(call: Call, e: IOException) {
+                          setStatus("Network error: ${e.message}")
+                      }
+
+                      override fun onResponse(call: Call, response: Response) {
+                          response.use {
+                              val raw = it.body?.string() ?: ""
+                              if (!it.isSuccessful) {
+                                  setStatus("STT error ${it.code}: ${shorten(raw)}")
+                                  return
+                              }
+                              val text = try {
+                                  JSONObject(raw).optString("text", "").trim()
+                              } catch (e: Exception) {
+                                  ""
+                              }
+                              if (text.isEmpty()) {
+                                  setStatus("Kuch samajh nahi aaya, dobara bolo.")
+                              } else {
+                                  runOnUiThread { handleUserText(text) }
+                              }
+                          }
+                      }
+                  })
+              }
+
+              private fun handleUserText(text: String) {
+                  val key = apiKey()
+                  if (key.isEmpty()) {
+                      setStatus("Settings me Groq API key daalo.")
+                      return
+                  }
+                  appendChat("Tum: $text")
+                  history.put(JSONObject().put("role", "user").put("content", text))
+                  trimHistory()
+                  setStatus("Soch raha hu...")
+
+                  val payload = JSONObject()
+                      .put("model", model())
+                      .put("messages", history)
+                      .put("temperature", 0.7)
+
+                  val request = Request.Builder()
+                      .url("$groqBase/chat/completions")
+                      .header("Authorization", "Bearer $key")
+                      .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                      .build()
+
+                  client.newCall(request).enqueue(object : Callback {
+                      override fun onFailure(call: Call, e: IOException) {
+                          setStatus("Network error: ${e.message}")
+                      }
+
+                      override fun onResponse(call: Call, response: Response) {
+                          response.use {
+                              val raw = it.body?.string() ?: ""
+                              if (!it.isSuccessful) {
+                                  setStatus("Chat error ${it.code}: ${shorten(raw)}")
+                                  return
+                              }
+                              val reply = try {
+                                  JSONObject(raw).getJSONArray("choices").getJSONObject(0)
+                                      .getJSONObject("message").getString("content").trim()
+                              } catch (e: Exception) {
+                                  ""
+                              }
+                              if (reply.isEmpty()) {
+                                  setStatus("Jawab parse nahi hua.")
+                                  return
+                              }
+                              history.put(JSONObject().put("role", "assistant").put("content", reply))
+                              runOnUiThread {
+                                  appendChat("Ayra: $reply")
+                                  setStatus("Ready")
+                                  speak(reply)
+                              }
+                          }
+                      }
+                  })
+              }
+
+              // keep system prompt + last 20 messages
+              private fun trimHistory() {
+                  while (history.length() > 21) {
+                      history.remove(1)
+                  }
+              }
+
+              // ---------- Helpers ----------
+
+              private fun speak(text: String) {
+                  if (!ttsReady) return
+                  val clean = text.replace(Regex("[*_#`>]"), "")
+                  tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, "ayra")
+              }
+
+              private fun appendChat(line: String) {
+                  chatText.append(line + "\n\n")
+                  chatScroll.post { chatScroll.fullScroll(View.FOCUS_DOWN) }
+              }
+
+              private fun setStatus(msg: String) {
+                  runOnUiThread { statusText.text = msg }
+              }
+
+              private fun shorten(s: String): String = if (s.length > 200) s.substring(0, 200) else s
+          }
+          AYRA_EOF
+          cat > ayra.keystore.b64 <<'AYRA_EOF'
+          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
+          AYRA_EOF
+          base64 -d ayra.keystore.b64 > app/ayra.keystore
+
+      - name: Build APK
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ayra-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Ayra.apk
+          gh release create "build-${{ github.run_number }}" Ayra.apk --target "${{ github.sha }}" --title "Ayra build ${{ github.run_number }}" --notes "Ayra APK"
